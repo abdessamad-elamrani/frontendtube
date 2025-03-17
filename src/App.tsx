@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import axios from 'axios'
 
 interface Video {
@@ -14,6 +14,7 @@ interface Video {
       }
     }
   }
+  transcript?: string
 }
 
 function App() {
@@ -21,8 +22,47 @@ function App() {
   const [videos, setVideos] = useState<Video[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [loadingTranscripts, setLoadingTranscripts] = useState<{[key: string]: boolean}>({})
 
   const YOUTUBE_API_KEY = 'AIzaSyDW6ZkURikVNR3Om3LuxbnQNsg_vXoc_os'
+  const RAPID_API_KEY = '3c42177155mshe3e3d4f57b1aea4p1cc9b9jsn5b30444422a4'
+
+  const fetchTranscript = async (videoId: string) => {
+    setLoadingTranscripts(prev => ({ ...prev, [videoId]: true }))
+    try {
+      const response = await axios.get('https://youtube-transcript3.p.rapidapi.com/api/transcript', {
+        params: { videoId: videoId },
+        headers: {
+          'x-rapidapi-key': RAPID_API_KEY,
+          'x-rapidapi-host': 'youtube-transcript3.p.rapidapi.com'
+        }
+      })
+      
+      // Extract text from transcript data
+      let transcriptText = ''
+      if (response.data && Array.isArray(response.data)) {
+        transcriptText = response.data.map((item: any) => item.text).join(' ')
+      } else if (response.data && response.data.transcript) {
+        if (Array.isArray(response.data.transcript)) {
+          transcriptText = response.data.transcript.map((item: any) => item.text).join(' ')
+        } else {
+          transcriptText = String(response.data.transcript)
+        }
+      }
+      
+      setVideos(prevVideos => 
+        prevVideos.map(video => 
+          video.id.videoId === videoId 
+            ? { ...video, transcript: transcriptText }
+            : video
+        )
+      )
+    } catch (err) {
+      console.error('Error fetching transcript:', err)
+    } finally {
+      setLoadingTranscripts(prev => ({ ...prev, [videoId]: false }))
+    }
+  }
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,6 +82,13 @@ function App() {
         }
       })
       setVideos(response.data.items)
+      
+      // Fetch transcripts one by one with delay to avoid rate limit
+      for (const video of response.data.items) {
+        await fetchTranscript(video.id.videoId)
+        // Add a delay between requests to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
     } catch (err) {
       setError('Failed to fetch videos. Please try again.')
       console.error('Error fetching videos:', err)
@@ -94,7 +141,7 @@ function App() {
                     alt={video.snippet.title}
                   />
                 </div>
-                <div className="p-4">
+                <div className="p-4 flex-1">
                   <a
                     href={`https://www.youtube.com/watch?v=${video.id.videoId}`}
                     target="_blank"
@@ -106,6 +153,18 @@ function App() {
                   <p className="mt-2 text-gray-600">
                     {video.snippet.description}
                   </p>
+                  <div className="mt-4">
+                    <h3 className="font-semibold text-gray-800">Transcript:</h3>
+                    {loadingTranscripts[video.id.videoId] ? (
+                      <p className="text-gray-500 italic">Loading transcript...</p>
+                    ) : video.transcript ? (
+                      <p className="text-sm text-gray-600 mt-2 max-h-40 overflow-y-auto">
+                        {video.transcript}
+                      </p>
+                    ) : (
+                      <p className="text-gray-500 italic">No transcript available</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
